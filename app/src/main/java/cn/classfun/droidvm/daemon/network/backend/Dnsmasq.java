@@ -1,6 +1,7 @@
 package cn.classfun.droidvm.daemon.network.backend;
 
 import static cn.classfun.droidvm.lib.Constants.DATA_DIR;
+import static cn.classfun.droidvm.lib.utils.AssetUtils.getPrebuiltBinaryPath;
 import static cn.classfun.droidvm.lib.utils.StringUtils.fmt;
 import static cn.classfun.droidvm.lib.utils.StringUtils.pathJoin;
 
@@ -34,18 +35,29 @@ public final class Dnsmasq {
         this.inst = inst;
     }
 
+    @NonNull
+    private static String resolveDnsmasqBinary() {
+        var prebuilt = getPrebuiltBinaryPath("dnsmasq");
+        var file = new File(prebuilt);
+        if (file.isFile() && file.canExecute())
+            return prebuilt;
+        return "dnsmasq";
+    }
+
     private void startDnsmasqProcess(
     ) {
         var bridge = inst.item.optString("bridge_name", "");
         var rangeStart = inst.item.optString("dhcp_range_start", "");
         var rangeEnd = inst.item.optString("dhcp_range_end", "");
         var router = findRouterAddress(rangeStart);
-        Log.i(TAG, fmt("Starting dnsmasq on %s (%s - %s)", bridge, rangeStart, rangeEnd));
+        var dnsmasq = resolveDnsmasqBinary();
+        Log.i(TAG, fmt("Starting dnsmasq on %s (%s - %s) using %s",
+            bridge, rangeStart, rangeEnd, dnsmasq));
         var pidFile = getDnsmasqPidFile();
         var leaseFile = getDnsmasqLeaseFile();
         try {
             var args = new ArrayList<String>();
-            args.add("dnsmasq");
+            args.add(dnsmasq);
             args.add(fmt("--interface=%s", bridge));
             args.add("--bind-interfaces");
             args.add(fmt("--dhcp-range=%s,%s,12h", rangeStart, rangeEnd));
