@@ -13,9 +13,12 @@ import java.io.BufferedReader;
 import java.io.File;
 import java.io.InputStreamReader;
 import java.io.InterruptedIOException;
+import java.util.ArrayList;
 import java.util.concurrent.TimeUnit;
 
 import cn.classfun.droidvm.daemon.network.NetworkInstance;
+import cn.classfun.droidvm.lib.network.IPv4Address;
+import cn.classfun.droidvm.lib.network.IPv4Network;
 import cn.classfun.droidvm.lib.store.network.NetworkState;
 import cn.classfun.droidvm.lib.utils.ProcessUtils;
 
@@ -36,22 +39,28 @@ public final class Dnsmasq {
         var bridge = inst.item.optString("bridge_name", "");
         var rangeStart = inst.item.optString("dhcp_range_start", "");
         var rangeEnd = inst.item.optString("dhcp_range_end", "");
+        var router = findRouterAddress(rangeStart);
         Log.i(TAG, fmt("Starting dnsmasq on %s (%s - %s)", bridge, rangeStart, rangeEnd));
         var pidFile = getDnsmasqPidFile();
         var leaseFile = getDnsmasqLeaseFile();
         try {
-            var pb = new ProcessBuilder(
-                "dnsmasq",
-                fmt("--interface=%s", bridge),
-                "--bind-interfaces",
-                fmt("--dhcp-range=%s,%s,12h", rangeStart, rangeEnd),
-                "--no-daemon",
-                "--keep-in-foreground",
-                fmt("--pid-file=%s", pidFile),
-                fmt("--dhcp-leasefile=%s", leaseFile),
-                "--log-queries",
-                "--log-dhcp"
-            );
+            var args = new ArrayList<String>();
+            args.add("dnsmasq");
+            args.add(fmt("--interface=%s", bridge));
+            args.add("--bind-interfaces");
+            args.add(fmt("--dhcp-range=%s,%s,12h", rangeStart, rangeEnd));
+            if (router != null)
+                args.add(fmt("--dhcp-option=option:router,%s", router));
+            args.add("--dhcp-option=option:dns-server,8.8.8.8,1.1.1.1");
+            args.add("--port=0");
+            args.add("--no-resolv");
+            args.add("--no-daemon");
+            args.add("--keep-in-foreground");
+            args.add(fmt("--pid-file=%s", pidFile));
+            args.add(fmt("--dhcp-leasefile=%s", leaseFile));
+            args.add("--log-queries");
+            args.add("--log-dhcp");
+            var pb = new ProcessBuilder(args);
             pb.redirectErrorStream(true);
             dnsmasqExitCode = 0;
             dnsmasqProcess = pb.start();
@@ -59,6 +68,27 @@ public final class Dnsmasq {
         } catch (Exception e) {
             Log.e(TAG, fmt("Failed to start dnsmasq on %s", bridge), e);
         }
+    }
+
+    @Nullable
+    private String findRouterAddress(@NonNull String rangeStart) {
+        IPv4Address dhcpStart = null;
+        try {
+            if (!rangeStart.isEmpty()) dhcpStart = IPv4Address.parse(rangeStart);
+        } catch (Exception ignored) {
+        }
+
+        IPv4Network fallback = null;
+        for (var iter : inst.item.get("ipv4_addresses")) {
+            try {
+                var cidr = IPv4Network.parse(iter.getValue().asString());
+                if (fallback == null) fallback = cidr;
+                if (dhcpStart != null && cidr.contains(dhcpStart))
+                    return cidr.address().toString();
+            } catch (Exception ignored) {
+            }
+        }
+        return fallback != null ? fallback.address().toString() : null;
     }
 
     private void stopDnsmasqProcess(@Nullable Process process) {
