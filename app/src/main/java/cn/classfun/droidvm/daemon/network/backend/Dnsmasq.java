@@ -63,7 +63,13 @@ public final class Dnsmasq {
             args.add(fmt("--dhcp-range=%s,%s,12h", rangeStart, rangeEnd));
             if (router != null)
                 args.add(fmt("--dhcp-option=option:router,%s", router));
-            args.add("--dhcp-option=option:dns-server,8.8.8.8,1.1.1.1");
+            var dnsServers = new ArrayList<String>();
+            for (var iter : inst.item.get("dns_servers")) {
+                var s = iter.getValue().asString();
+                if (s != null && !s.isEmpty()) dnsServers.add(s);
+            }
+            if (!dnsServers.isEmpty())
+                args.add(fmt("--dhcp-option=option:dns-server,%s", String.join(",", dnsServers)));
             args.add("--port=0");
             args.add("--no-resolv");
             args.add("--no-daemon");
